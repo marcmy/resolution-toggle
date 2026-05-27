@@ -1,4 +1,4 @@
-# Resolution Toggle Installer
+# Resolution Toggle
 
 Install a desktop shortcut that toggles the primary display between two resolutions.
 
