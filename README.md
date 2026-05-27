@@ -4,7 +4,9 @@ Install a desktop shortcut that toggles the primary display between two resoluti
 
 ## Install
 
-Double-click `Install.cmd`.
+Download and run the self-extracting installer from the latest GitHub release.
+
+When installing from the source files, double-click `Install.cmd`.
 
 The installer:
 
