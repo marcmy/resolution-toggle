@@ -22,13 +22,10 @@ public class DisplayUtil {
     public const int DISP_CHANGE_SUCCESSFUL = 0;
     public const int DISP_CHANGE_NOTUPDATED = -3;
     public const int CDS_UPDATEREGISTRY = 0x00000001;
+    public const int CDS_NORESET = 0x10000000;
     public const int DM_PELSWIDTH = 0x80000;
     public const int DM_PELSHEIGHT = 0x100000;
     public const int DM_DISPLAYFREQUENCY = 0x400000;
-    public const int DM_DISPLAYFIXEDOUTPUT = 0x20000000;
-    public const int DMDFO_DEFAULT = 0;
-    public const int DMDFO_STRETCH = 1;
-    public const int DMDFO_CENTER = 2;
     public const int DISPLAY_DEVICE_PRIMARY_DEVICE = 0x00000004;
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
@@ -89,6 +86,9 @@ public class DisplayUtil {
 
     [DllImport("user32.dll", CharSet = CharSet.Ansi)]
     public static extern int ChangeDisplaySettingsEx(string lpszDeviceName, ref DEVMODE lpDevMode, IntPtr hwnd, int dwflags, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Ansi)]
+    public static extern int ChangeDisplaySettingsEx(string lpszDeviceName, IntPtr lpDevMode, IntPtr hwnd, int dwflags, IntPtr lParam);
 }
 "@
 
@@ -300,7 +300,7 @@ function Get-ScalingHelpText {
     $targetText = if ($Scaling -eq "Stretch") { "stretched fullscreen" } else { "black bars / centered" }
     $vendor = Get-VideoVendor
 
-    $common = "Resolution Toggle asked Windows for $targetText mode, but your display driver did not confirm it.`n`nIf the picture does not look right, set it manually here:"
+    $common = "Resolution Toggle switched the resolution, but Windows does not reliably let small apps force $targetText scaling on every GPU driver.`n`nIf the picture does not look right, set it manually here:"
 
     $nvidia = "NVIDIA App: if your NVIDIA App has display scaling, look under System > Displays. If you do not see scaling there, use NVIDIA Control Panel instead.`n`nNVIDIA Control Panel: right-click the desktop > NVIDIA Control Panel > Display > Adjust desktop size and position > Scaling tab. Choose Full-screen for stretched, or Aspect ratio / No scaling for black bars, then click Apply."
     $amd = "AMD Software: right-click the desktop > AMD Software: Adrenalin Edition or AMD Radeon Settings > Display. Turn GPU Scaling on, then set Scaling Mode. Choose Full panel for stretched, or Preserve aspect ratio / Center for black bars."
@@ -504,27 +504,29 @@ function Set-BestDisplayMode {
     $targetMode.dmFields = [DisplayUtil]::DM_PELSWIDTH -bor [DisplayUtil]::DM_PELSHEIGHT -bor [DisplayUtil]::DM_DISPLAYFREQUENCY
 
     if ($scalingRequested) {
-        $targetMode.dmFields = $targetMode.dmFields -bor [DisplayUtil]::DM_DISPLAYFIXEDOUTPUT
-        if ($Scaling -eq "Stretch") {
-            $targetMode.dmDisplayFixedOutput = [DisplayUtil]::DMDFO_STRETCH
-        } else {
-            $targetMode.dmDisplayFixedOutput = [DisplayUtil]::DMDFO_CENTER
-        }
+        # GPU drivers often revert the resolution if DM_DISPLAYFIXEDOUTPUT is forced here.
+        # Keep the mode switch stable and guide users to the driver scaling setting instead.
     }
 
-    $flags = [DisplayUtil]::CDS_UPDATEREGISTRY
+    $flags = [DisplayUtil]::CDS_UPDATEREGISTRY -bor [DisplayUtil]::CDS_NORESET
     $result = [DisplayUtil]::ChangeDisplaySettingsEx($Display, [ref]$targetMode, [IntPtr]::Zero, $flags, [IntPtr]::Zero)
     $retriedWithoutScaling = $false
     $usedTemporaryFallback = $false
 
-    if ($result -ne [DisplayUtil]::DISP_CHANGE_SUCCESSFUL -and $scalingRequested) {
-        $retriedWithoutScaling = $true
-        [DisplayUtil+DEVMODE]$targetMode = Get-DisplayModeByIndex -Display $Display -Index ([int]$bestMode.Index)
-        $targetMode.dmFields = [DisplayUtil]::DM_PELSWIDTH -bor [DisplayUtil]::DM_PELSHEIGHT -bor [DisplayUtil]::DM_DISPLAYFREQUENCY
-        $result = [DisplayUtil]::ChangeDisplaySettingsEx($Display, [ref]$targetMode, [IntPtr]::Zero, $flags, [IntPtr]::Zero)
+    if ($result -eq [DisplayUtil]::DISP_CHANGE_SUCCESSFUL) {
+        $applyResult = [DisplayUtil]::ChangeDisplaySettingsEx($null, [IntPtr]::Zero, [IntPtr]::Zero, 0, [IntPtr]::Zero)
+        if ($applyResult -ne [DisplayUtil]::DISP_CHANGE_SUCCESSFUL) {
+            $result = $applyResult
+        }
     }
 
-    if ($result -eq [DisplayUtil]::DISP_CHANGE_NOTUPDATED) {
+    if ($result -ne [DisplayUtil]::DISP_CHANGE_SUCCESSFUL) {
+        $targetMode = Get-DisplayModeByIndex -Display $Display -Index ([int]$bestMode.Index)
+        $targetMode.dmFields = [DisplayUtil]::DM_PELSWIDTH -bor [DisplayUtil]::DM_PELSHEIGHT -bor [DisplayUtil]::DM_DISPLAYFREQUENCY
+        $result = [DisplayUtil]::ChangeDisplaySettingsEx($Display, [ref]$targetMode, [IntPtr]::Zero, [DisplayUtil]::CDS_UPDATEREGISTRY, [IntPtr]::Zero)
+    }
+
+    if ($result -eq [DisplayUtil]::DISP_CHANGE_NOTUPDATED -or $result -ne [DisplayUtil]::DISP_CHANGE_SUCCESSFUL) {
         $usedTemporaryFallback = $true
         [DisplayUtil+DEVMODE]$targetMode = Get-DisplayModeByIndex -Display $Display -Index ([int]$bestMode.Index)
         $targetMode.dmFields = [DisplayUtil]::DM_PELSWIDTH -bor [DisplayUtil]::DM_PELSHEIGHT -bor [DisplayUtil]::DM_DISPLAYFREQUENCY
@@ -535,18 +537,10 @@ function Set-BestDisplayMode {
         throw "Windows could not switch to $(Format-Resolution $Width $Height). Result code: $result"
     }
 
-    $actual = Get-CurrentMode -Display $Display
-    $expectedFixedOutput = $null
-    if ($Scaling -eq "Stretch") {
-        $expectedFixedOutput = [DisplayUtil]::DMDFO_STRETCH
-    } elseif ($Scaling -eq "Center") {
-        $expectedFixedOutput = [DisplayUtil]::DMDFO_CENTER
-    }
-
     [pscustomobject]@{
         Frequency = [int]$targetMode.dmDisplayFrequency
         ScalingRequested = $scalingRequested
-        ScalingConfirmed = (-not $scalingRequested) -or ($actual.dmDisplayFixedOutput -eq $expectedFixedOutput)
+        ScalingConfirmed = -not $scalingRequested
         RetriedWithoutScaling = $retriedWithoutScaling
         UsedTemporaryFallback = $usedTemporaryFallback
     }
