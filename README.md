@@ -1,47 +1,42 @@
 # Resolution Toggle
 
-Install a desktop shortcut that toggles the primary display between two resolutions.
+Resolution Toggle installs a desktop icon that switches your primary display between your normal resolution and a custom/stretch resolution.
 
 ## Install
 
-Download and run the self-extracting installer from the latest GitHub release.
+1. Download `resolution-toggle-v1.0.0.exe` from the latest GitHub release.
+2. Double-click it.
+3. After install, use the `Toggle Resolution` icon on your desktop.
 
-When installing from the source files, double-click `Install.cmd`.
+The installer does not ask for your resolutions. The first time you launch `Toggle Resolution`, it asks for:
 
-The installer:
+- your normal/native resolution
+- your custom/stretch resolution
+- whether the custom resolution should stretch fullscreen or use black bars/centered mode
 
-- launches `Install-ResolutionToggle.ps1`
-- detects the primary display and lists available modes
-- prompts for the secondary/stretch resolution
-- shows `1920x1440` as a suggestion only, not a detected mode
-- prompts for the default/native resolution
-- guesses the default/native resolution from the detected primary-display modes
-- installs files under `%LOCALAPPDATA%\ResolutionToggle`
-- creates a desktop shortcut named `Toggle Resolution`
-- uses the included `ToggleResolution.ico` for the shortcut
+After you save, launch `Toggle Resolution` again to switch to the custom resolution. Launch it again to switch back.
 
-The shortcut toggles the primary display between the two configured resolutions.
-
-## Refresh Rate
-
-The toggle script selects the highest available refresh rate automatically at click time for the target resolution.
+Resolution Toggle always picks the highest refresh rate Windows exposes for the resolution it is switching to.
 
 ## Custom Resolutions
 
-Custom/stretch resolutions must already be exposed by Windows and your GPU settings before installing. If a resolution is not listed during install, create it first in NVIDIA, AMD, Intel, or Windows display settings, then rerun `Install.cmd`.
+Your custom/stretch resolution must already exist in Windows or your GPU settings. If Windows does not expose that resolution, Resolution Toggle cannot switch to it.
 
-## Reconfigure
+## Change Settings
 
-Rerun `Install.cmd` anytime to choose different stretch/default resolutions.
+Open Start > Resolution Toggle > Change Settings.
 
 ## Uninstall
 
-Double-click `Uninstall.cmd`.
+Use either:
 
-The uninstaller removes the installed files and both the current and legacy desktop shortcut names.
+- Windows Settings > Apps > Installed apps > Resolution Toggle > Uninstall
+- Start > Resolution Toggle > Uninstall Resolution Toggle
+
+Uninstall removes the desktop icon, Start menu folder, Windows uninstall entry, saved settings, and installed files.
 
 ## Notes
 
 - No admin rights are required.
-- The shortcut toggles only the primary display.
-- If virtual super-resolution features expose modes above the panel's true native resolution, the default/native guess may be higher than native. Type the real native resolution manually when prompted.
+- The desktop icon toggles the primary display.
+- Fullscreen stretch / black bars is requested through Windows when switching modes. If your GPU driver ignores that request, Resolution Toggle shows where to set it manually in NVIDIA or AMD settings.

@@ -9,7 +9,4 @@ if %errorlevel%==0 (
     set "PS=powershell.exe"
 )
 
-"%PS%" -NoProfile -ExecutionPolicy Bypass -Command "$Desktop=[Environment]::GetFolderPath('DesktopDirectory'); Remove-Item (Join-Path $Desktop 'Toggle Resolution.lnk') -Force -ErrorAction SilentlyContinue; Remove-Item (Join-Path $Desktop 'Toggle 1920x1440 - 2560x1440.lnk') -Force -ErrorAction SilentlyContinue; Remove-Item (Join-Path $env:LOCALAPPDATA 'ResolutionToggle') -Recurse -Force -ErrorAction SilentlyContinue; Write-Host 'Resolution Toggle removed.'"
-
-echo.
-pause
+"%PS%" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0Uninstall-ResolutionToggle.ps1"

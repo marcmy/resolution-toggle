@@ -17,6 +17,8 @@ $ConfigPath = Join-Path $BuildRoot "sfx-config.txt"
 $Files = @(
     "Install.cmd",
     "Install-ResolutionToggle.ps1",
+    "Toggle-Resolution.ps1",
+    "Uninstall-ResolutionToggle.ps1",
     "Uninstall.cmd",
     "ToggleResolution.ico",
     "README.md",
@@ -59,10 +61,10 @@ try {
         Copy-Item -LiteralPath (Join-Path $RepoRoot $file) -Destination $SourceRoot -Force
     }
 
-    $config = @"
+$config = @"
 ;!@Install@!UTF-8!
 Title="Resolution Toggle"
-BeginPrompt="Install Resolution Toggle?"
+GUIMode="2"
 RunProgram="Install.cmd"
 ;!@InstallEnd@!
 "@

@@ -9,7 +9,4 @@ if %errorlevel%==0 (
     set "PS=powershell.exe"
 )
 
-"%PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-ResolutionToggle.ps1"
-
-echo.
-pause
+"%PS%" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0Install-ResolutionToggle.ps1"
