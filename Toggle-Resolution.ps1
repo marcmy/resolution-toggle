@@ -8,6 +8,7 @@ $ErrorActionPreference = "Stop"
 
 $AppName = "Resolution Toggle"
 $ConfigPath = Join-Path $PSScriptRoot "settings.json"
+$LogPath = Join-Path $PSScriptRoot "ResolutionToggle.log"
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -100,6 +101,16 @@ function Show-Message {
     )
 
     [System.Windows.Forms.MessageBox]::Show($Message, $Title, [System.Windows.Forms.MessageBoxButtons]::OK, $Icon) | Out-Null
+}
+
+function Write-Log {
+    param([string]$Message)
+
+    try {
+        $stamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
+        Add-Content -LiteralPath $LogPath -Value "[$stamp] $Message" -Encoding UTF8
+    } catch {
+    }
 }
 
 function Get-PrimaryDisplayName {
@@ -275,7 +286,7 @@ function Test-RapidRelaunch {
         return $false
     }
 
-    return ((Get-Date) - $lastSwitch).TotalSeconds -lt 3
+    return ((Get-Date) - $lastSwitch).TotalSeconds -lt 8
 }
 
 function Get-VideoVendor {
@@ -508,17 +519,10 @@ function Set-BestDisplayMode {
         # Keep the mode switch stable and guide users to the driver scaling setting instead.
     }
 
-    $flags = [DisplayUtil]::CDS_UPDATEREGISTRY -bor [DisplayUtil]::CDS_NORESET
+    $flags = [DisplayUtil]::CDS_UPDATEREGISTRY
     $result = [DisplayUtil]::ChangeDisplaySettingsEx($Display, [ref]$targetMode, [IntPtr]::Zero, $flags, [IntPtr]::Zero)
     $retriedWithoutScaling = $false
     $usedTemporaryFallback = $false
-
-    if ($result -eq [DisplayUtil]::DISP_CHANGE_SUCCESSFUL) {
-        $applyResult = [DisplayUtil]::ChangeDisplaySettingsEx($null, [IntPtr]::Zero, [IntPtr]::Zero, 0, [IntPtr]::Zero)
-        if ($applyResult -ne [DisplayUtil]::DISP_CHANGE_SUCCESSFUL) {
-            $result = $applyResult
-        }
-    }
 
     if ($result -ne [DisplayUtil]::DISP_CHANGE_SUCCESSFUL) {
         $targetMode = Get-DisplayModeByIndex -Display $Display -Index ([int]$bestMode.Index)
@@ -546,10 +550,19 @@ function Set-BestDisplayMode {
     }
 }
 
+$createdNew = $false
+$mutex = New-Object System.Threading.Mutex($true, "Local\ResolutionToggleSingleInstance", [ref]$createdNew)
+
 try {
+    if (-not $createdNew) {
+        Write-Log "Another instance is already running; exiting."
+        exit 0
+    }
+
     $display = Get-PrimaryDisplayName
     $current = Get-CurrentMode -Display $display
     $modes = @(Get-DisplayModes -Display $display)
+    Write-Log ("Start. Current={0}x{1}@{2}Hz Configure={3}" -f $current.dmPelsWidth, $current.dmPelsHeight, $current.dmDisplayFrequency, [bool]$Configure)
 
     if (-not $modes -or $modes.Count -eq 0) {
         throw "Could not read the resolutions for this monitor."
@@ -562,6 +575,7 @@ try {
     }
 
     if (Test-RapidRelaunch -Config $config) {
+        Write-Log "Recent switch detected; exiting to avoid accidental immediate toggle-back."
         exit 0
     }
 
@@ -569,13 +583,21 @@ try {
     if ($isCurrentlyCustom) {
         $target = $config.Native
         $targetScaling = "Default"
+        $targetName = "Native"
     } else {
         $target = $config.Custom
         $targetScaling = [string]$config.Scaling
+        $targetName = "Custom"
     }
 
-    $result = Set-BestDisplayMode -Display $display -Modes $modes -Width ([int]$target.Width) -Height ([int]$target.Height) -Scaling $targetScaling
     Set-ConfigProperty -Config $config -Name "LastSwitchAt" -Value (Get-Date).ToString("o")
+    Set-ConfigProperty -Config $config -Name "LastTarget" -Value $targetName
+    Save-Config $config
+    Write-Log ("Switching to {0}: {1}x{2}, Scaling={3}" -f $targetName, [int]$target.Width, [int]$target.Height, $targetScaling)
+
+    $result = Set-BestDisplayMode -Display $display -Modes $modes -Width ([int]$target.Width) -Height ([int]$target.Height) -Scaling $targetScaling
+    $after = Get-CurrentMode -Display $display
+    Write-Log ("Switch result. Actual={0}x{1}@{2}Hz TemporaryFallback={3}" -f $after.dmPelsWidth, $after.dmPelsHeight, $after.dmDisplayFrequency, [bool]$result.UsedTemporaryFallback)
     Save-Config $config
 
     if ($result.ScalingRequested -and (-not $result.ScalingConfirmed) -and (-not $config.ScalingHelpShown)) {
@@ -590,6 +612,17 @@ try {
         throw
     }
 
+    Write-Log "Error: $($_.Exception.Message)"
     Show-Message $_.Exception.Message $AppName ([System.Windows.Forms.MessageBoxIcon]::Error)
     exit 1
+} finally {
+    if ($mutex) {
+        if ($createdNew) {
+            try {
+                $mutex.ReleaseMutex()
+            } catch {
+            }
+        }
+        $mutex.Dispose()
+    }
 }
