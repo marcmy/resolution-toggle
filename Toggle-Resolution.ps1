@@ -24,6 +24,7 @@ public class DisplayUtil {
     public const int DISP_CHANGE_NOTUPDATED = -3;
     public const int CDS_UPDATEREGISTRY = 0x00000001;
     public const int CDS_NORESET = 0x10000000;
+    public const int DM_BITSPERPEL = 0x40000;
     public const int DM_PELSWIDTH = 0x80000;
     public const int DM_PELSHEIGHT = 0x100000;
     public const int DM_DISPLAYFREQUENCY = 0x400000;
@@ -512,7 +513,7 @@ function Set-BestDisplayMode {
 
     [DisplayUtil+DEVMODE]$targetMode = Get-DisplayModeByIndex -Display $Display -Index ([int]$bestMode.Index)
     $scalingRequested = $Scaling -eq "Stretch" -or $Scaling -eq "Center"
-    $targetMode.dmFields = [DisplayUtil]::DM_PELSWIDTH -bor [DisplayUtil]::DM_PELSHEIGHT -bor [DisplayUtil]::DM_DISPLAYFREQUENCY
+    $targetMode.dmFields = $targetMode.dmFields -bor [DisplayUtil]::DM_BITSPERPEL -bor [DisplayUtil]::DM_PELSWIDTH -bor [DisplayUtil]::DM_PELSHEIGHT -bor [DisplayUtil]::DM_DISPLAYFREQUENCY
 
     if ($scalingRequested) {
         # GPU drivers often revert the resolution if DM_DISPLAYFIXEDOUTPUT is forced here.
@@ -520,20 +521,21 @@ function Set-BestDisplayMode {
     }
 
     $flags = [DisplayUtil]::CDS_UPDATEREGISTRY
+    Write-Log ("Applying DEVMODE index={0} fields=0x{1:X} bpp={2} {3}x{4}@{5}Hz flags=0x{6:X}" -f [int]$bestMode.Index, [int]$targetMode.dmFields, [int]$targetMode.dmBitsPerPel, [int]$targetMode.dmPelsWidth, [int]$targetMode.dmPelsHeight, [int]$targetMode.dmDisplayFrequency, [int]$flags)
     $result = [DisplayUtil]::ChangeDisplaySettingsEx($Display, [ref]$targetMode, [IntPtr]::Zero, $flags, [IntPtr]::Zero)
     $retriedWithoutScaling = $false
     $usedTemporaryFallback = $false
 
     if ($result -ne [DisplayUtil]::DISP_CHANGE_SUCCESSFUL) {
         $targetMode = Get-DisplayModeByIndex -Display $Display -Index ([int]$bestMode.Index)
-        $targetMode.dmFields = [DisplayUtil]::DM_PELSWIDTH -bor [DisplayUtil]::DM_PELSHEIGHT -bor [DisplayUtil]::DM_DISPLAYFREQUENCY
+        $targetMode.dmFields = $targetMode.dmFields -bor [DisplayUtil]::DM_BITSPERPEL -bor [DisplayUtil]::DM_PELSWIDTH -bor [DisplayUtil]::DM_PELSHEIGHT -bor [DisplayUtil]::DM_DISPLAYFREQUENCY
         $result = [DisplayUtil]::ChangeDisplaySettingsEx($Display, [ref]$targetMode, [IntPtr]::Zero, [DisplayUtil]::CDS_UPDATEREGISTRY, [IntPtr]::Zero)
     }
 
     if ($result -eq [DisplayUtil]::DISP_CHANGE_NOTUPDATED -or $result -ne [DisplayUtil]::DISP_CHANGE_SUCCESSFUL) {
         $usedTemporaryFallback = $true
         [DisplayUtil+DEVMODE]$targetMode = Get-DisplayModeByIndex -Display $Display -Index ([int]$bestMode.Index)
-        $targetMode.dmFields = [DisplayUtil]::DM_PELSWIDTH -bor [DisplayUtil]::DM_PELSHEIGHT -bor [DisplayUtil]::DM_DISPLAYFREQUENCY
+        $targetMode.dmFields = $targetMode.dmFields -bor [DisplayUtil]::DM_BITSPERPEL -bor [DisplayUtil]::DM_PELSWIDTH -bor [DisplayUtil]::DM_PELSHEIGHT -bor [DisplayUtil]::DM_DISPLAYFREQUENCY
         $result = [DisplayUtil]::ChangeDisplaySettingsEx($Display, [ref]$targetMode, [IntPtr]::Zero, 0, [IntPtr]::Zero)
     }
 
