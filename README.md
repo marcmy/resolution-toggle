@@ -13,6 +13,7 @@ The installer:
 - launches `Install-ResolutionToggle.ps1`
 - detects the primary display and lists available modes
 - prompts for the secondary/stretch resolution
+- shows `1920x1440` as a suggestion only, not a detected mode
 - prompts for the default/native resolution
 - guesses the default/native resolution from the detected primary-display modes
 - installs files under `%LOCALAPPDATA%\ResolutionToggle`

@@ -224,11 +224,12 @@ function Prompt-Resolution {
     param(
         [string]$Title,
         [string]$DefaultValue,
+        [string]$DefaultLabel = "default",
         [object[]]$Modes
     )
 
     while ($true) {
-        $inputText = Read-Host "$Title [$DefaultValue]"
+        $inputText = Read-Host "$Title (${DefaultLabel}: $DefaultValue)"
         if ([string]::IsNullOrWhiteSpace($inputText)) {
             $inputText = $DefaultValue
         }
@@ -284,6 +285,7 @@ Write-Host ""
 $stretch = Prompt-Resolution `
     -Title "Secondary/stretch resolution" `
     -DefaultValue "1920x1440" `
+    -DefaultLabel "suggestion only; press Enter to try it or type a listed mode" `
     -Modes $modes
 
 $defaultValue = "{0}x{1}" -f $detectedNative.Width, $detectedNative.Height
@@ -291,6 +293,7 @@ $defaultValue = "{0}x{1}" -f $detectedNative.Width, $detectedNative.Height
 $native = Prompt-Resolution `
     -Title "Default/native resolution" `
     -DefaultValue $defaultValue `
+    -DefaultLabel "detected guess; press Enter to use it or type your native mode" `
     -Modes $modes
 
 $toggleTemplate = @'
