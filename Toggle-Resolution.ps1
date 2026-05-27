@@ -20,6 +20,8 @@ using System.Runtime.InteropServices;
 public class DisplayUtil {
     public const int ENUM_CURRENT_SETTINGS = -1;
     public const int DISP_CHANGE_SUCCESSFUL = 0;
+    public const int DISP_CHANGE_NOTUPDATED = -3;
+    public const int CDS_UPDATEREGISTRY = 0x00000001;
     public const int DM_PELSWIDTH = 0x80000;
     public const int DM_PELSHEIGHT = 0x100000;
     public const int DM_DISPLAYFREQUENCY = 0x400000;
@@ -247,6 +249,35 @@ function Save-Config {
     $Config | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $ConfigPath -Encoding UTF8
 }
 
+function Set-ConfigProperty {
+    param(
+        [object]$Config,
+        [string]$Name,
+        [object]$Value
+    )
+
+    if ($Config.PSObject.Properties[$Name]) {
+        $Config.$Name = $Value
+    } else {
+        $Config | Add-Member -NotePropertyName $Name -NotePropertyValue $Value
+    }
+}
+
+function Test-RapidRelaunch {
+    param([object]$Config)
+
+    if (-not $Config.LastSwitchAt) {
+        return $false
+    }
+
+    $lastSwitch = [DateTime]::MinValue
+    if (-not [DateTime]::TryParse([string]$Config.LastSwitchAt, [ref]$lastSwitch)) {
+        return $false
+    }
+
+    return ((Get-Date) - $lastSwitch).TotalSeconds -lt 3
+}
+
 function Get-VideoVendor {
     try {
         $names = @(Get-CimInstance Win32_VideoController -ErrorAction Stop | ForEach-Object { $_.Name })
@@ -445,6 +476,7 @@ function Configure-ResolutionToggle {
             }
             Scaling = $entry.Scaling
             ScalingHelpShown = $false
+            LastSwitchAt = $null
             CreatedAt = (Get-Date).ToString("s")
         })
 
@@ -480,11 +512,20 @@ function Set-BestDisplayMode {
         }
     }
 
-    $result = [DisplayUtil]::ChangeDisplaySettingsEx($Display, [ref]$targetMode, [IntPtr]::Zero, 0, [IntPtr]::Zero)
+    $flags = [DisplayUtil]::CDS_UPDATEREGISTRY
+    $result = [DisplayUtil]::ChangeDisplaySettingsEx($Display, [ref]$targetMode, [IntPtr]::Zero, $flags, [IntPtr]::Zero)
     $retriedWithoutScaling = $false
+    $usedTemporaryFallback = $false
 
     if ($result -ne [DisplayUtil]::DISP_CHANGE_SUCCESSFUL -and $scalingRequested) {
         $retriedWithoutScaling = $true
+        [DisplayUtil+DEVMODE]$targetMode = Get-DisplayModeByIndex -Display $Display -Index ([int]$bestMode.Index)
+        $targetMode.dmFields = [DisplayUtil]::DM_PELSWIDTH -bor [DisplayUtil]::DM_PELSHEIGHT -bor [DisplayUtil]::DM_DISPLAYFREQUENCY
+        $result = [DisplayUtil]::ChangeDisplaySettingsEx($Display, [ref]$targetMode, [IntPtr]::Zero, $flags, [IntPtr]::Zero)
+    }
+
+    if ($result -eq [DisplayUtil]::DISP_CHANGE_NOTUPDATED) {
+        $usedTemporaryFallback = $true
         [DisplayUtil+DEVMODE]$targetMode = Get-DisplayModeByIndex -Display $Display -Index ([int]$bestMode.Index)
         $targetMode.dmFields = [DisplayUtil]::DM_PELSWIDTH -bor [DisplayUtil]::DM_PELSHEIGHT -bor [DisplayUtil]::DM_DISPLAYFREQUENCY
         $result = [DisplayUtil]::ChangeDisplaySettingsEx($Display, [ref]$targetMode, [IntPtr]::Zero, 0, [IntPtr]::Zero)
@@ -507,6 +548,7 @@ function Set-BestDisplayMode {
         ScalingRequested = $scalingRequested
         ScalingConfirmed = (-not $scalingRequested) -or ($actual.dmDisplayFixedOutput -eq $expectedFixedOutput)
         RetriedWithoutScaling = $retriedWithoutScaling
+        UsedTemporaryFallback = $usedTemporaryFallback
     }
 }
 
@@ -525,6 +567,10 @@ try {
         exit 0
     }
 
+    if (Test-RapidRelaunch -Config $config) {
+        exit 0
+    }
+
     $isCurrentlyCustom = $current.dmPelsWidth -eq [int]$config.Custom.Width -and $current.dmPelsHeight -eq [int]$config.Custom.Height
     if ($isCurrentlyCustom) {
         $target = $config.Native
@@ -535,11 +581,15 @@ try {
     }
 
     $result = Set-BestDisplayMode -Display $display -Modes $modes -Width ([int]$target.Width) -Height ([int]$target.Height) -Scaling $targetScaling
+    Set-ConfigProperty -Config $config -Name "LastSwitchAt" -Value (Get-Date).ToString("o")
+    Save-Config $config
 
     if ($result.ScalingRequested -and (-not $result.ScalingConfirmed) -and (-not $config.ScalingHelpShown)) {
-        $config.ScalingHelpShown = $true
+        Set-ConfigProperty -Config $config -Name "ScalingHelpShown" -Value $true
         Save-Config $config
         Show-Message (Get-ScalingHelpText -Scaling $targetScaling) $AppName ([System.Windows.Forms.MessageBoxIcon]::Information)
+    } elseif ($result.UsedTemporaryFallback) {
+        Show-Message "Windows switched resolutions, but it would not save the change as the active display mode. If it snaps back again, your GPU driver may be forcing the native mode." $AppName ([System.Windows.Forms.MessageBoxIcon]::Information)
     }
 } catch {
     if ($DebugErrors) {
