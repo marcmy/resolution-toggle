@@ -27,11 +27,6 @@ $FilesToInstall = @(
 )
 
 function Resolve-PowerShellPath {
-    $pwsh = (Get-Command pwsh.exe -ErrorAction SilentlyContinue).Source
-    if ($pwsh) {
-        return $pwsh
-    }
-
     return "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 }
 
@@ -101,9 +96,9 @@ $iconLocation = if (Test-Path -LiteralPath $icon) { "$icon,0" } else { "$env:Sys
 
 Remove-Item -LiteralPath $LegacyShortcut -Force -ErrorAction SilentlyContinue
 
-$toggleArgs = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$toggleScript`""
-$settingsArgs = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$toggleScript`" -Configure"
-$uninstallArgs = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$uninstallScript`""
+$toggleArgs = "-STA -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$toggleScript`""
+$settingsArgs = "-STA -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$toggleScript`" -Configure"
+$uninstallArgs = "-STA -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$uninstallScript`""
 
 New-AppShortcut `
     -Path $DesktopShortcut `
@@ -144,8 +139,8 @@ New-ItemProperty -Path $UninstallKey -Name "DisplayVersion" -Value $Version -Pro
 New-ItemProperty -Path $UninstallKey -Name "Publisher" -Value "marcmy" -PropertyType String -Force | Out-Null
 New-ItemProperty -Path $UninstallKey -Name "InstallLocation" -Value $InstallDir -PropertyType String -Force | Out-Null
 New-ItemProperty -Path $UninstallKey -Name "DisplayIcon" -Value $iconLocation -PropertyType String -Force | Out-Null
-New-ItemProperty -Path $UninstallKey -Name "UninstallString" -Value "`"$ps`" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$uninstallScript`"" -PropertyType String -Force | Out-Null
-New-ItemProperty -Path $UninstallKey -Name "QuietUninstallString" -Value "`"$ps`" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$uninstallScript`" -Quiet" -PropertyType String -Force | Out-Null
+New-ItemProperty -Path $UninstallKey -Name "UninstallString" -Value "`"$ps`" -STA -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$uninstallScript`"" -PropertyType String -Force | Out-Null
+New-ItemProperty -Path $UninstallKey -Name "QuietUninstallString" -Value "`"$ps`" -STA -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$uninstallScript`" -Quiet" -PropertyType String -Force | Out-Null
 New-ItemProperty -Path $UninstallKey -Name "EstimatedSize" -Value $estimatedSize -PropertyType DWord -Force | Out-Null
 New-ItemProperty -Path $UninstallKey -Name "NoModify" -Value 1 -PropertyType DWord -Force | Out-Null
 New-ItemProperty -Path $UninstallKey -Name "NoRepair" -Value 1 -PropertyType DWord -Force | Out-Null

@@ -161,10 +161,25 @@ function Find-BestMode {
         [int]$Height
     )
 
-    $Modes |
-        Where-Object { $_.dmPelsWidth -eq $Width -and $_.dmPelsHeight -eq $Height } |
-        Sort-Object dmDisplayFrequency, dmBitsPerPel -Descending |
-        Select-Object -First 1
+    $best = $null
+    foreach ($mode in $Modes) {
+        if ($mode.dmPelsWidth -ne $Width -or $mode.dmPelsHeight -ne $Height) {
+            continue
+        }
+
+        if (
+            $null -eq $best -or
+            $mode.dmDisplayFrequency -gt $best.dmDisplayFrequency -or
+            (
+                $mode.dmDisplayFrequency -eq $best.dmDisplayFrequency -and
+                $mode.dmBitsPerPel -gt $best.dmBitsPerPel
+            )
+        ) {
+            $best = $mode
+        }
+    }
+
+    return $best
 }
 
 function Parse-Resolution {
@@ -426,11 +441,12 @@ function Set-BestDisplayMode {
         [string]$Scaling
     )
 
-    $targetMode = Find-BestMode -Modes $Modes -Width $Width -Height $Height
-    if ($null -eq $targetMode) {
+    $foundMode = Find-BestMode -Modes $Modes -Width $Width -Height $Height
+    if ($null -eq $foundMode) {
         throw "$(Format-Resolution $Width $Height) is not available right now."
     }
 
+    [DisplayUtil+DEVMODE]$targetMode = $foundMode
     $scalingRequested = $Scaling -eq "Stretch" -or $Scaling -eq "Center"
     $targetMode.dmFields = [DisplayUtil]::DM_PELSWIDTH -bor [DisplayUtil]::DM_PELSHEIGHT -bor [DisplayUtil]::DM_DISPLAYFREQUENCY
 
@@ -448,7 +464,8 @@ function Set-BestDisplayMode {
 
     if ($result -ne [DisplayUtil]::DISP_CHANGE_SUCCESSFUL -and $scalingRequested) {
         $retriedWithoutScaling = $true
-        $targetMode = Find-BestMode -Modes $Modes -Width $Width -Height $Height
+        $foundMode = Find-BestMode -Modes $Modes -Width $Width -Height $Height
+        [DisplayUtil+DEVMODE]$targetMode = $foundMode
         $targetMode.dmFields = [DisplayUtil]::DM_PELSWIDTH -bor [DisplayUtil]::DM_PELSHEIGHT -bor [DisplayUtil]::DM_DISPLAYFREQUENCY
         $result = [DisplayUtil]::ChangeDisplaySettingsEx($Display, [ref]$targetMode, [IntPtr]::Zero, 0, [IntPtr]::Zero)
     }
