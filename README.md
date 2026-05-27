@@ -8,7 +8,7 @@ Resolution Toggle installs a desktop icon that switches your primary display bet
 2. Double-click it.
 3. After install, use the `Toggle Resolution` icon on your desktop.
 
-The installer does not ask for your resolutions. The first time you launch `Toggle Resolution`, it asks for:
+The installer extracts itself automatically. It should not ask where to unzip files, and it does not ask for your resolutions. The first time you launch `Toggle Resolution`, it asks for:
 
 - your normal/native resolution
 - your custom/stretch resolution
