@@ -102,7 +102,16 @@ function Get-PrimaryDisplayName {
         }
     }
 
-    throw "Could not find primary display."
+    try {
+        Add-Type -AssemblyName System.Windows.Forms
+        $primaryScreen = [System.Windows.Forms.Screen]::PrimaryScreen
+        if ($primaryScreen -and -not [string]::IsNullOrWhiteSpace($primaryScreen.DeviceName)) {
+            return $primaryScreen.DeviceName
+        }
+    } catch {
+    }
+
+    return $null
 }
 
 function Get-CurrentMode {
@@ -264,7 +273,8 @@ Write-Host ""
 Write-Host "Resolution Toggle Installer"
 Write-Host "==========================="
 Write-Host ""
-Write-Host "Primary display: $display"
+$displayLabel = if ([string]::IsNullOrWhiteSpace($display)) { "Windows default display" } else { $display }
+Write-Host "Primary display: $displayLabel"
 Write-Host ("Current mode:    {0}x{1} @ {2}Hz" -f $current.Width, $current.Height, $current.Frequency)
 Write-Host ("Default guess:   {0}x{1} @ {2}Hz" -f $detectedNative.Width, $detectedNative.Height, $detectedNative.MaxFrequency)
 Write-Host ""
@@ -387,7 +397,16 @@ try {
             }
         }
 
-        throw "Could not find primary display."
+        try {
+            Add-Type -AssemblyName System.Windows.Forms
+            $primaryScreen = [System.Windows.Forms.Screen]::PrimaryScreen
+            if ($primaryScreen -and -not [string]::IsNullOrWhiteSpace($primaryScreen.DeviceName)) {
+                return $primaryScreen.DeviceName
+            }
+        } catch {
+        }
+
+        return $null
     }
 
     function Get-CurrentMode {
