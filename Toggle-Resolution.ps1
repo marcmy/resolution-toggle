@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [switch]$Configure
+    [switch]$Configure,
+    [switch]$DebugErrors
 )
 
 $ErrorActionPreference = "Stop"
@@ -147,11 +148,17 @@ function Get-DisplayModes {
         }
 
         if ($mode.dmPelsWidth -gt 0 -and $mode.dmPelsHeight -gt 0 -and $mode.dmDisplayFrequency -gt 0) {
-            $modes.Add($mode)
+            $modes.Add([pscustomobject]@{
+                Index = [int]$i
+                Width = [int]$mode.dmPelsWidth
+                Height = [int]$mode.dmPelsHeight
+                Frequency = [int]$mode.dmDisplayFrequency
+                BitsPerPel = [int]$mode.dmBitsPerPel
+            })
         }
     }
 
-    return @($modes)
+    return @($modes.ToArray())
 }
 
 function Find-BestMode {
@@ -163,16 +170,16 @@ function Find-BestMode {
 
     $best = $null
     foreach ($mode in $Modes) {
-        if ($mode.dmPelsWidth -ne $Width -or $mode.dmPelsHeight -ne $Height) {
+        if ($mode.Width -ne $Width -or $mode.Height -ne $Height) {
             continue
         }
 
         if (
             $null -eq $best -or
-            $mode.dmDisplayFrequency -gt $best.dmDisplayFrequency -or
+            $mode.Frequency -gt $best.Frequency -or
             (
-                $mode.dmDisplayFrequency -eq $best.dmDisplayFrequency -and
-                $mode.dmBitsPerPel -gt $best.dmBitsPerPel
+                $mode.Frequency -eq $best.Frequency -and
+                $mode.BitsPerPel -gt $best.BitsPerPel
             )
         ) {
             $best = $mode
@@ -180,6 +187,20 @@ function Find-BestMode {
     }
 
     return $best
+}
+
+function Get-DisplayModeByIndex {
+    param(
+        [string]$Display,
+        [int]$Index
+    )
+
+    $mode = New-DevMode
+    if (-not [DisplayUtil]::EnumDisplaySettings($Display, $Index, [ref]$mode)) {
+        throw "Could not read the selected display mode."
+    }
+
+    return $mode
 }
 
 function Parse-Resolution {
@@ -441,12 +462,12 @@ function Set-BestDisplayMode {
         [string]$Scaling
     )
 
-    $foundMode = Find-BestMode -Modes $Modes -Width $Width -Height $Height
-    if ($null -eq $foundMode) {
+    $bestMode = Find-BestMode -Modes $Modes -Width $Width -Height $Height
+    if ($null -eq $bestMode) {
         throw "$(Format-Resolution $Width $Height) is not available right now."
     }
 
-    [DisplayUtil+DEVMODE]$targetMode = $foundMode
+    [DisplayUtil+DEVMODE]$targetMode = Get-DisplayModeByIndex -Display $Display -Index ([int]$bestMode.Index)
     $scalingRequested = $Scaling -eq "Stretch" -or $Scaling -eq "Center"
     $targetMode.dmFields = [DisplayUtil]::DM_PELSWIDTH -bor [DisplayUtil]::DM_PELSHEIGHT -bor [DisplayUtil]::DM_DISPLAYFREQUENCY
 
@@ -464,8 +485,7 @@ function Set-BestDisplayMode {
 
     if ($result -ne [DisplayUtil]::DISP_CHANGE_SUCCESSFUL -and $scalingRequested) {
         $retriedWithoutScaling = $true
-        $foundMode = Find-BestMode -Modes $Modes -Width $Width -Height $Height
-        [DisplayUtil+DEVMODE]$targetMode = $foundMode
+        [DisplayUtil+DEVMODE]$targetMode = Get-DisplayModeByIndex -Display $Display -Index ([int]$bestMode.Index)
         $targetMode.dmFields = [DisplayUtil]::DM_PELSWIDTH -bor [DisplayUtil]::DM_PELSHEIGHT -bor [DisplayUtil]::DM_DISPLAYFREQUENCY
         $result = [DisplayUtil]::ChangeDisplaySettingsEx($Display, [ref]$targetMode, [IntPtr]::Zero, 0, [IntPtr]::Zero)
     }
@@ -522,6 +542,10 @@ try {
         Show-Message (Get-ScalingHelpText -Scaling $targetScaling) $AppName ([System.Windows.Forms.MessageBoxIcon]::Information)
     }
 } catch {
+    if ($DebugErrors) {
+        throw
+    }
+
     Show-Message $_.Exception.Message $AppName ([System.Windows.Forms.MessageBoxIcon]::Error)
     exit 1
 }
