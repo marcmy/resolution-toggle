@@ -247,18 +247,88 @@ function Get-SuggestedStretchResolution {
     return Format-Resolution -Width $width -Height $height
 }
 
+function Test-ConfigShape {
+    param([object]$Config)
+
+    try {
+        if ($null -eq $Config -or $null -eq $Config.Native -or $null -eq $Config.Custom) {
+            return $false
+        }
+
+        $nativeWidth = [int]$Config.Native.Width
+        $nativeHeight = [int]$Config.Native.Height
+        $customWidth = [int]$Config.Custom.Width
+        $customHeight = [int]$Config.Custom.Height
+
+        return (
+            $nativeWidth -gt 0 -and
+            $nativeHeight -gt 0 -and
+            $customWidth -gt 0 -and
+            $customHeight -gt 0
+        )
+    } catch {
+        return $false
+    }
+}
+
 function Read-Config {
     if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
         return $null
     }
 
-    Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+    try {
+        $raw = Get-Content -LiteralPath $ConfigPath -Raw -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($raw)) {
+            throw "settings.json is empty."
+        }
+
+        $config = $raw | ConvertFrom-Json -ErrorAction Stop
+        if (-not (Test-ConfigShape -Config $config)) {
+            throw "settings.json does not contain valid native/custom resolutions."
+        }
+
+        return $config
+    } catch {
+        $reason = $_.Exception.Message
+        $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+        $corruptPath = Join-Path $PSScriptRoot "settings.corrupt-$stamp.json"
+
+        try {
+            Move-Item -LiteralPath $ConfigPath -Destination $corruptPath -Force -ErrorAction Stop
+            Write-Log "Invalid settings.json moved to $corruptPath. Reason: $reason"
+        } catch {
+            Write-Log "Invalid settings.json could not be moved. Reason: $reason; move error: $($_.Exception.Message)"
+            try {
+                Remove-Item -LiteralPath $ConfigPath -Force -ErrorAction Stop
+            } catch {
+            }
+        }
+
+        return $null
+    }
 }
 
 function Save-Config {
     param([object]$Config)
 
-    $Config | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $ConfigPath -Encoding UTF8
+    $json = $Config | ConvertTo-Json -Depth 4
+    $tempPath = "$ConfigPath.tmp.$PID"
+    $backupPath = "$ConfigPath.bak"
+
+    try {
+        $json | Set-Content -LiteralPath $tempPath -Encoding UTF8 -ErrorAction Stop
+        $null = Get-Content -LiteralPath $tempPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+
+        if (Test-Path -LiteralPath $ConfigPath -PathType Leaf) {
+            Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
+            [System.IO.File]::Replace($tempPath, $ConfigPath, $backupPath, $true)
+            Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
+        } else {
+            [System.IO.File]::Move($tempPath, $ConfigPath)
+        }
+    } finally {
+        Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Set-ConfigProperty {
@@ -592,15 +662,29 @@ try {
         $targetName = "Custom"
     }
 
-    Set-ConfigProperty -Config $config -Name "LastSwitchAt" -Value (Get-Date).ToString("o")
-    Set-ConfigProperty -Config $config -Name "LastTarget" -Value $targetName
-    Save-Config $config
     Write-Log ("Switching to {0}: {1}x{2}, Scaling={3}" -f $targetName, [int]$target.Width, [int]$target.Height, $targetScaling)
 
     $result = Set-BestDisplayMode -Display $display -Modes $modes -Width ([int]$target.Width) -Height ([int]$target.Height) -Scaling $targetScaling
+    Start-Sleep -Milliseconds 300
     $after = Get-CurrentMode -Display $display
-    Write-Log ("Switch result. Actual={0}x{1}@{2}Hz TemporaryFallback={3}" -f $after.dmPelsWidth, $after.dmPelsHeight, $after.dmDisplayFrequency, [bool]$result.UsedTemporaryFallback)
+
+    if ($after.dmPelsWidth -ne [int]$target.Width -or $after.dmPelsHeight -ne [int]$target.Height) {
+        Write-Log ("Target did not stick on first attempt. Actual={0}x{1}@{2}Hz; retrying once." -f $after.dmPelsWidth, $after.dmPelsHeight, $after.dmDisplayFrequency)
+        Start-Sleep -Milliseconds 250
+        $result = Set-BestDisplayMode -Display $display -Modes $modes -Width ([int]$target.Width) -Height ([int]$target.Height) -Scaling $targetScaling
+        Start-Sleep -Milliseconds 500
+        $after = Get-CurrentMode -Display $display
+    }
+
+    if ($after.dmPelsWidth -ne [int]$target.Width -or $after.dmPelsHeight -ne [int]$target.Height) {
+        throw "Windows or the GPU driver immediately reverted the display to $($after.dmPelsWidth)x$($after.dmPelsHeight) after switching to $($target.Width)x$($target.Height). Check ResolutionToggle.log for the exact mode Windows accepted."
+    }
+
+    Set-ConfigProperty -Config $config -Name "LastSwitchAt" -Value (Get-Date).ToString("o")
+    Set-ConfigProperty -Config $config -Name "LastTarget" -Value $targetName
     Save-Config $config
+
+    Write-Log ("Switch result. Actual={0}x{1}@{2}Hz TemporaryFallback={3}" -f $after.dmPelsWidth, $after.dmPelsHeight, $after.dmDisplayFrequency, [bool]$result.UsedTemporaryFallback)
 
     if ($result.ScalingRequested -and (-not $result.ScalingConfirmed) -and (-not $config.ScalingHelpShown)) {
         Set-ConfigProperty -Config $config -Name "ScalingHelpShown" -Value $true
