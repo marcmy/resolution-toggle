@@ -84,3 +84,17 @@ Uninstall removes the desktop icon, Start menu folder, Windows uninstall entry, 
 - Installed files live in `%LOCALAPPDATA%\ResolutionToggle`.
 - The desktop icon is named `Toggle Resolution`.
 - The app uses built-in Windows PowerShell, so you do not need to install PowerShell 7.
+
+## Development checks
+
+CI parses all PowerShell sources, runs PSScriptAnalyzer 1.25.0, and runs Pester 5.7.1
+on both Windows PowerShell 5.1 and PowerShell 7. With those modules installed, run:
+
+```powershell
+./tools/Test-PowerShell.ps1
+```
+
+Existing analyzer findings are listed in `tools/analyzer-baseline.psd1`; new warnings
+and errors fail the check. Tests load selected helpers without executing the app,
+and compile and inspect an installer in a temporary directory. They never launch
+the installer, install shortcuts, or change the display resolution.
